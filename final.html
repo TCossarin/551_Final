@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Traffic Camera Alert App</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.css" />
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.js"></script>
+    <script src="https://unpkg.com/@turf/turf"></script>
+</head>
+
+<body>
+    <div id="map" style="width: 100%; height: 600px;"></div>
+    <button id="clearRoute">Clear Route</button>
+    <button id="getLocationBtn">Get User Location</button>
+    <script src="index.js"></script>
+</body>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    
+    var map = L.map('map').setView([51.05, -114.05], 11);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+
+    var waypoints = [];
+    var orsAPIKey = '5b3ce3597851110001cf624851be5fa5dcec404cb978b436bdd7d45a';
+    var routePolyline = null;
+    var markers = [];
+    var trafficCameras = [];
+    var userMarker = null;
+    var userLocations = []; // Store previous locations of the user
+
+    // Function to fetch and display the route
+    function fetchAndDisplayRoute() {
+        if (waypoints.length < 2) return;
+
+        var coordinates = waypoints.map(waypoint => [waypoint.lng, waypoint.lat]);
+
+        fetch(`https://api.openrouteservice.org/v2/directions/driving-car/geojson`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': orsAPIKey
+            },
+            body: JSON.stringify({coordinates})
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (routePolyline) {
+                map.removeLayer(routePolyline);
+            }
+            var routeCoordinates = data.features[0].geometry.coordinates;
+            var routeLatLngs = routeCoordinates.map(coord => [coord[1], coord[0]]);
+            routePolyline = L.polyline(routeLatLngs, {color: 'blue'}).addTo(map);
+
+            // Iterate over traffic cameras and check if they are within 40 meters of the route
+            trafficCameras.forEach(marker => {
+                var distance = turf.pointToLineDistance(marker.toGeoJSON().geometry.coordinates, routePolyline.toGeoJSON(), {units: 'meters'});
+                marker.setStyle({fillColor: distance <= 40 ? '#ff0000' : '#008000'}); // Red if within 40 meters of camera, green otherwise
+            });
+        })
+        .catch(error => console.error('Error fetching the route:', error));
+    }
+
+    map.on('click', function(e) {
+        waypoints.push(e.latlng);
+        var marker = L.marker(e.latlng).addTo(map);
+        markers.push(marker);
+        fetchAndDisplayRoute();
+    });
+
+    document.getElementById('clearRoute').addEventListener('click', function() {
+        var isConfirmed = confirm("Are you sure you want to clear the route?");
+        if (isConfirmed) {
+            if (routePolyline) {
+                map.removeLayer(routePolyline);
+            }
+            waypoints = [];
+            markers.forEach(marker => map.removeLayer(marker));
+            markers = [];
+            // Reset camera locations to green
+            trafficCameras.forEach(marker => {
+                marker.setStyle({fillColor: '#008000'});
+            });
+        }
+    });
+
+    function fetchAndDisplayTrafficCameraLocations() {
+        fetch('https://data.calgary.ca/resource/k7p9-kppz.json')
+            .then(response => response.json())
+            .then(data => {
+                if (data && data.length > 0) {
+                    data.forEach(function(location) {
+                        var coordinates = location.point.coordinates;
+                        var lat = parseFloat(coordinates[1]);
+                        var lng = parseFloat(coordinates[0]);
+                        var cameraLocation = location.camera_location || 'Camera Location';
+
+                        if (!isNaN(lat) && !isNaN(lng)) {
+                            var marker = L.circleMarker([lat, lng], {
+                                radius: 8,
+                                fillColor: "#008000", // Green by default
+                                color: "#000",
+                                weight: 1,
+                                opacity: 1,
+                                fillOpacity: 0.8
+                            }).addTo(map);
+                            marker.bindPopup(cameraLocation);
+                            trafficCameras.push(marker);
+                        }
+                    });
+                }
+            })
+            .catch(error => {
+                console.error('Error fetching traffic camera data:', error);
+                alert('Error fetching data: ' + error.message);
+            });
+    }
+
+    fetchAndDisplayTrafficCameraLocations();
+
+    function getUserLocation() {
+        var audio = new Audio('traffic-camera-alert.mp3');  // Initialize audio
+
+        // Assuming trafficCameras is an array of camera objects/marker with added 'alerted' property
+        // Initialize 'alerted' property for each camera marker if not already done
+        trafficCameras.forEach(camera => {
+            if (typeof camera.alerted === 'undefined') {
+                camera.alerted = false; // Ensure each camera has the 'alerted' property
+            }
+        });
+
+        if ("geolocation" in navigator) {
+            navigator.geolocation.watchPosition(
+                position => {
+                    var userLat = position.coords.latitude;
+                    var userLng = position.coords.longitude;
+
+                    // Add the user's previous location as a small purple dot
+                    var previousLocationMarker = L.circleMarker([userLat, userLng], {
+                        radius: 3,
+                        fillColor: "purple",
+                        color: "#000",
+                        weight: 0, // Remove outline
+                        opacity: 1,
+                        fillOpacity: 0.8
+                    }).addTo(map);
+                    userLocations.push(previousLocationMarker);
+
+                    // Update or create the marker for the user's current location
+                    if (userMarker) {
+                        userMarker.setLatLng([userLat, userLng]);
+                    } else {
+                        userMarker = L.circleMarker([userLat, userLng], {
+                            radius: 8,
+                            fillColor: "purple",
+                            color: "#000",
+                            weight: 3,
+                            opacity: 1,
+                            fillOpacity: 0.8
+                        }).addTo(map);
+                        userMarker.bindPopup("You are here!");
+                    }
+                    map.setView([userLat, userLng], map.getZoom());
+
+                    // Check each camera's distance from the user
+                    trafficCameras.forEach(cameraMarker => {
+                        var cameraLat = cameraMarker.getLatLng().lat;
+                        var cameraLng = cameraMarker.getLatLng().lng;
+                        var distance = map.distance([userLat, userLng], [cameraLat, cameraLng]);
+
+                        if (distance < 200 && !cameraMarker.alerted) {
+                            // User enters the 200m range for the first time
+                            audio.play().catch(e => console.error("Error playing the audio:", e));
+                            cameraMarker.alerted = true; // Mark this camera as alerted
+
+                            var popup = L.popup()
+                                .setLatLng([cameraLat, cameraLng])
+                                .setContent('Approaching traffic camera in 200 m')
+                                .openOn(map);
+
+                            setTimeout(() => map.closePopup(popup), 4000);
+                        } else if (distance >= 200 && cameraMarker.alerted) {
+                            // Optionally reset the alerted state if user moves away beyond 200m
+                            cameraMarker.alerted = false;
+                        }
+                    });
+                },
+                error => alert("Error fetching user location: " + error.message),
+                {
+                    enableHighAccuracy: true,
+                    maximumAge: 0,
+                    timeout: 27000
+                }
+            );
+        } else {
+            alert("Geolocation is not supported by this browser.");
+        }
+    }
+    
+    // Call getUserLocation to start tracking
+    document.getElementById("getLocationBtn").addEventListener("click", getUserLocation);
+
+});
+
+</script>
+
+
+</html>
