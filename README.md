@@ -7,7 +7,7 @@ Users can pick a starting point and destination and the app will give the most d
 ![directions](directions.png)
 
 ## Live Notifications
-While the user is driving, they are given alerts when approaching traffic cameras.
+While the user is driving, they are given audio and visual alerts when approaching traffic cameras.
 
 ![alert](alert.png)
 
