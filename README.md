@@ -1,6 +1,9 @@
 # Traffic Camera Alert App
 This app is used to give drivers advanced notice before passing traffic cameras.
 
+Video:
+https://www.youtube.com/watch?v=6dhnYCJBvSE
+
 ## Route Planning
 Users can pick a starting point and destination and the app will give the most direct route ans show the cameras that will be passed en route.
 
